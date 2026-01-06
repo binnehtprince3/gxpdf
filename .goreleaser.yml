@@ -1,0 +1,132 @@
+version: 2
+
+project_name: gxpdf
+
+before:
+  hooks:
+    - go test ./...
+
+builds:
+  - id: gxpdf
+    binary: gxpdf
+    main: ./cmd/gxpdf
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64, "386"]
+    # Reproducible builds: https://goreleaser.com/blog/reproducible-builds/
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/coregx/gxpdf/cmd/gxpdf/commands.Version={{.Version}}
+      - -X github.com/coregx/gxpdf/cmd/gxpdf/commands.GitCommit={{.Commit}}
+      - -X github.com/coregx/gxpdf/cmd/gxpdf/commands.BuildDate={{.CommitDate}}
+    env:
+      - CGO_ENABLED=0
+    # Ignore build errors for unsupported combinations
+    ignore:
+      - goos: darwin
+        goarch: "386"
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - formats: [tar.gz]
+    name_template: "gxpdf_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: "gxpdf_{{ .Version }}_checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+  groups:
+    - title: "🚀 Features"
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: "🐛 Bug Fixes"
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: "⚡ Performance"
+      regexp: "^.*perf[(\\w)]*:+.*$"
+      order: 2
+    - title: "📝 Documentation"
+      regexp: "^.*docs[(\\w)]*:+.*$"
+      order: 3
+    - title: "🧪 Tests"
+      regexp: "^.*test[(\\w)]*:+.*$"
+      order: 4
+    - title: "🎨 Other"
+      order: 999
+
+release:
+  github:
+    owner: coregx
+    name: gxpdf
+  draft: false
+  prerelease: auto
+  mode: append
+  header: |
+    ## GxPDF {{ .Tag }} ({{ .Date }})
+
+    **Enterprise-grade PDF library for Go!**
+
+    - 100% table extraction accuracy on bank statements
+    - PDF merge, split, text extraction
+    - AES-256 encryption support
+  footer: |
+    ---
+
+    **Installation**:
+    ```bash
+    # CLI tool:
+    go install github.com/coregx/gxpdf/cmd/gxpdf@{{ .Tag }}
+
+    # Library:
+    go get github.com/coregx/gxpdf@{{ .Tag }}
+
+    # Or download binary for your platform above
+    ```
+
+    **Quick Start (CLI)**:
+    ```bash
+    # Extract tables (100% accuracy!):
+    gxpdf tables invoice.pdf --format csv
+
+    # PDF info:
+    gxpdf info document.pdf
+
+    # Merge PDFs:
+    gxpdf merge doc1.pdf doc2.pdf -o combined.pdf
+    ```
+
+    **Quick Start (Library)**:
+    ```go
+    doc, _ := gxpdf.Open("invoice.pdf")
+    defer doc.Close()
+
+    tables := doc.ExtractTables()
+    for _, t := range tables {
+        fmt.Println(t.Rows())
+    }
+    ```
+
+    **Documentation**: https://github.com/coregx/gxpdf#readme
+
+    **Report Issues**: https://github.com/coregx/gxpdf/issues

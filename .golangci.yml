@@ -1,0 +1,252 @@
+# GolangCI-Lint v2.7 Configuration for GxPDF
+# Based on goawk configuration (working v2 format)
+# Documentation: https://golangci-lint.run/docs/configuration/
+
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  # Enable comprehensive set of linters for production-quality PDF library
+  enable:
+    # Code quality and complexity
+    - gocyclo       # Check cyclomatic complexity
+    - gocognit      # Check cognitive complexity
+    - funlen        # Check function length
+    - nestif        # Reports deeply nested if statements
+
+    # Bug detection
+    - govet         # Standard Go vet (includes copylocks)
+    - staticcheck   # Comprehensive static analysis
+    - errcheck      # Check that errors are handled
+    - ineffassign   # Detect ineffectual assignments
+
+    # Code style and consistency
+    - misspell      # Check for misspelled words
+    - unconvert     # Remove unnecessary type conversions
+    - unparam       # Detect unused function parameters
+
+    # Performance (critical for large PDF processing)
+    - prealloc      # Find slice declarations that could be preallocated
+
+    # Code practices
+    - goconst       # Find repeated strings that could be constants
+    - gocritic      # Comprehensive code checker
+    - nakedret      # Checks for naked returns
+
+  settings:
+    govet:
+      enable:
+        - copylocks
+      disable:
+        - fieldalignment  # Memory optimization not critical for clarity
+
+    gocyclo:
+      # PDF parsing has inherent complexity
+      min-complexity: 20
+
+    funlen:
+      # Allow reasonably long functions for PDF processing
+      lines: 150
+      statements: 80
+
+    gocognit:
+      # PDF algorithms can be complex
+      min-complexity: 30
+
+    misspell:
+      locale: US
+      # PDF spec uses British spelling for some terms (lowercase only in v2)
+      ignore-rules:
+        - colour
+        - cancelled
+
+    nestif:
+      # PDF conditionals can be nested
+      min-complexity: 5
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+
+      disabled-checks:
+        - commentFormatting
+        - whyNoLint
+        - unnamedResult
+        - commentedOutCode
+        - octalLiteral
+        - paramTypeCombine
+        - emptyStringTest
+        - ifElseChain
+        - builtinShadow
+        - weakCond
+
+      settings:
+        hugeParam:
+          sizeThreshold: 256
+
+  # Exclusions (v2 format)
+  exclusions:
+    # Exclude reference code and examples/unipdf
+    paths:
+      - reference/
+      - examples/unipdf/
+
+    rules:
+      # Test files - allow more flexibility
+      - path: _test\.go
+        linters:
+          - gocyclo
+          - funlen
+          - errcheck
+          - goconst
+          - gocognit
+          - gocritic
+          - nestif
+          - unparam
+          - prealloc
+
+      # Table detector - complex algorithms
+      - path: internal/tabledetect/.*\.go
+        linters:
+          - gocyclo
+          - funlen
+          - gocognit
+          - gocritic
+          - nestif
+          - unparam
+          - unused
+          - prealloc
+          - staticcheck
+
+      # Text/Image extractor - PDF parsing complexity
+      - path: internal/extractor/.*\.go
+        linters:
+          - gocyclo
+          - funlen
+          - gocognit
+          - gocritic
+          - nestif
+          - unparam
+          - unused
+          - prealloc
+          - staticcheck
+          - errcheck
+
+      # PDF reader
+      - path: internal/reader/.*\.go
+        linters:
+          - gocyclo
+          - funlen
+          - gocognit
+
+      # Models - data structures
+      - path: internal/models/.*\.go
+        linters:
+          - gocyclo
+          - gocognit
+
+      # Document - page handling
+      - path: internal/document/.*\.go
+        linters:
+          - gocyclo
+          - funlen
+          - gocognit
+          - gocritic
+          - nestif
+
+      # PDF parser - inherently complex (follows PDF spec)
+      - path: internal/parser/.*\.go
+        linters:
+          - gocyclo
+          - funlen
+          - nestif
+          - gocognit
+          - gocritic
+          - errcheck
+          - staticcheck
+          - goconst
+
+      # PDF writer - generation complexity
+      - path: internal/writer/.*\.go
+        linters:
+          - gocyclo
+          - funlen
+          - gocognit
+          - gocritic
+          - nestif
+          - errcheck
+          - unused
+          - unparam
+          - prealloc
+          - staticcheck
+
+      # Encoders/Decoders - compression algorithms
+      - path: internal/encoding/.*\.go
+        linters:
+          - gocyclo
+          - gocognit
+
+      # Security - crypto algorithms
+      - path: internal/security/.*\.go
+        linters:
+          - gocyclo
+          - gocognit
+
+      # Fonts - complex tables
+      - path: internal/fonts/.*\.go
+        linters:
+          - gocyclo
+          - funlen
+          - gocognit
+          - gocritic
+
+      # CLI commands
+      - path: cmd/.*\.go
+        linters:
+          - funlen
+          - errcheck
+
+      # Example applications
+      - path: examples/.*\.go
+        linters:
+          - errcheck
+          - funlen
+
+      # Creator API
+      - path: creator/.*\.go
+        linters:
+          - gocyclo
+          - funlen
+          - gocognit
+          - gocritic
+          - nestif
+          - errcheck
+          - unparam
+          - staticcheck
+          - ineffassign
+          - goconst
+          - prealloc
+
+      # Export API
+      - path: export/.*\.go
+        linters:
+          - errcheck
+          - staticcheck
+
+      # Root package files
+      - path: "^[^/]+\\.go$"
+        linters:
+          - prealloc
+          - errcheck
+          - gocritic
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false

@@ -1,0 +1,96 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Planned
+- Form filling (fill existing PDF forms)
+- Form flattening (convert forms to static content)
+- Digital signatures (sign and verify)
+- PDF/A compliance (archival format)
+- SVG import
+
+---
+
+## [0.1.0] - 2026-01-07
+
+Initial public release of GxPDF - a modern, enterprise-grade PDF library for Go.
+
+### Added
+
+#### PDF Creation (Creator API)
+- **Document Creation** - Create PDF documents from scratch
+- **Text Rendering** - Add text with multiple fonts, sizes, and colors
+- **Graphics** - Draw lines, rectangles, circles, polygons, ellipses, Bezier curves
+- **Gradients** - Linear and radial gradient fills
+- **Color Spaces** - RGB and CMYK color support
+- **Tables** - Create tables with borders, backgrounds, and merged cells
+- **Images** - Embed JPEG and PNG images with transparency support
+- **Fonts** - Standard 14 PDF fonts + TTF/OTF font embedding
+- **Chapters & TOC** - Document structure with auto-generated Table of Contents
+- **Annotations** - Sticky notes, highlights, underlines, stamps
+- **Interactive Forms (AcroForm)** - Text fields, checkboxes, radio buttons, dropdowns, list boxes
+- **Encryption** - RC4 (40/128-bit) and AES (128/256-bit) encryption
+- **Watermarks** - Text watermarks with rotation, opacity, and positioning
+- **Bookmarks** - PDF outline/navigation structure
+- **Page Operations** - Merge, split, rotate, append pages
+
+#### PDF Reading & Extraction
+- **PDF Parser** - Read PDF 1.0-2.0 files
+  - Cross-reference table parsing (traditional and stream-based)
+  - Object and stream parsing with caching
+  - Indirect reference resolution
+- **Text Extraction** - Extract text with X,Y positions
+  - Unicode support (including Cyrillic)
+  - Font decoding (CMap, Identity-H)
+  - Content stream parsing
+- **Table Extraction** - Industry-leading accuracy
+  - 4-Pass Hybrid Detection Algorithm
+  - Lattice mode (ruling lines) + Stream mode (whitespace analysis)
+  - Multi-line cell support
+  - 100% accuracy on real-world bank statements
+- **Image Extraction** - Extract embedded images
+- **Export Formats** - CSV, JSON, Excel
+
+#### Infrastructure
+- **Stream Decoders** - FlateDecode, ASCII85Decode, ASCIIHexDecode
+- **Thread Safety** - Object cache with sync.RWMutex
+- **DDD Architecture** - Domain-Driven Design with Rich Domain Model
+
+### Architecture
+- **Domain Layer** - Pure business logic with no external dependencies
+- **Application Layer** - Use cases and service orchestration
+- **Infrastructure Layer** - PDF parsing, encoding, file I/O
+- **Public API** - Clean, intuitive API with functional options pattern
+
+### Testing
+- Comprehensive unit tests
+- Integration tests with real PDF files
+- Race detector clean
+- golangci-lint with 15+ linters: 0 issues
+
+### Documentation
+- Full API documentation (godoc)
+- Code examples for all features
+- Architecture documentation
+- Contributing guidelines
+- Security policy
+
+---
+
+## Project Information
+
+**Repository**: https://github.com/coregx/gxpdf
+
+**License**: MIT
+
+**Go Version**: 1.25+
+
+---
+
+[Unreleased]: https://github.com/coregx/gxpdf/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/coregx/gxpdf/releases/tag/v0.1.0

@@ -1,0 +1,777 @@
+package writer
+
+import (
+	"bytes"
+	"fmt"
+
+	"github.com/coregx/gxpdf/internal/fonts"
+)
+
+// PageContent represents the content and resources for a single page.
+//
+// This structure bridges the Creator API (which tracks text operations)
+// with the Writer infrastructure (which generates PDF bytes).
+type PageContent struct {
+	// TextOperations are the text drawing operations for this page.
+	TextOperations []TextOp
+
+	// GraphicsOperations are the graphics drawing operations for this page.
+	GraphicsOperations []GraphicsOp
+
+	// Resources tracks fonts and other resources used on this page.
+	Resources *ResourceDictionary
+}
+
+// TextOp represents a text drawing operation.
+//
+// This is an infrastructure-level representation of text operations
+// from the creator package.
+type TextOp struct {
+	Text      string  // Text to display
+	X         float64 // Horizontal position (points from left)
+	Y         float64 // Vertical position (points from bottom)
+	Font      string  // Font name (e.g., "Helvetica")
+	Size      float64 // Font size in points
+	Color     RGB     // Text color (RGB)
+	ColorCMYK *CMYK   // Text color (CMYK, optional - takes precedence over RGB)
+}
+
+// RGB represents an RGB color (0.0 to 1.0 range).
+type RGB struct {
+	R float64
+	G float64
+	B float64
+}
+
+// CMYK represents a CMYK color (0.0 to 1.0 range).
+type CMYK struct {
+	C float64 // Cyan
+	M float64 // Magenta
+	Y float64 // Yellow
+	K float64 // blacK
+}
+
+// Point represents a 2D point.
+type Point struct {
+	X float64
+	Y float64
+}
+
+// BezierSegment represents a cubic Bézier curve segment.
+type BezierSegment struct {
+	Start Point
+	C1    Point
+	C2    Point
+	End   Point
+}
+
+// GraphicsOp represents a graphics drawing operation.
+//
+// This is an infrastructure-level representation of graphics operations
+// from the creator package.
+type GraphicsOp struct {
+	Type int // 0=line, 1=rect, 2=circle, 5=polygon, 6=polyline, 7=ellipse, 8=bezier
+
+	// Common fields
+	X float64
+	Y float64
+
+	// Line fields
+	X2 float64
+	Y2 float64
+
+	// Rectangle fields
+	Width  float64
+	Height float64
+
+	// Circle fields
+	Radius float64
+
+	// Ellipse fields
+	RX float64 // Horizontal radius
+	RY float64 // Vertical radius
+
+	// Polygon/Polyline fields
+	Vertices []Point
+
+	// Bezier fields
+	BezierSegs []BezierSegment
+	Closed     bool // For Bezier curves
+
+	// Appearance
+	StrokeColor     *RGB
+	StrokeColorCMYK *CMYK // If set, takes precedence over StrokeColor
+	FillColor       *RGB
+	FillColorCMYK   *CMYK       // If set, takes precedence over FillColor
+	FillGradient    *GradientOp // Gradient fill
+	StrokeWidth     float64
+	Dashed          bool
+	DashArray       []float64
+	DashPhase       float64
+}
+
+// GradientType represents the type of gradient.
+type GradientType int
+
+const (
+	// GradientTypeLinear is an axial gradient (ShadingType 2).
+	GradientTypeLinear GradientType = 2
+	// GradientTypeRadial is a radial gradient (ShadingType 3).
+	GradientTypeRadial GradientType = 3
+)
+
+// ColorStopOp represents a color stop in a gradient.
+type ColorStopOp struct {
+	Position float64
+	Color    RGB
+}
+
+// GradientOp represents a gradient fill operation.
+type GradientOp struct {
+	Type GradientType
+
+	// ColorStops define the color transitions (minimum 2).
+	ColorStops []ColorStopOp
+
+	// Linear gradient coordinates
+	X1, Y1, X2, Y2 float64
+
+	// Radial gradient coordinates
+	X0, Y0, R0, R1 float64
+
+	// Extend flags
+	ExtendStart bool
+	ExtendEnd   bool
+}
+
+// GenerateContentStream generates a PDF content stream from text and graphics operations.
+//
+// Graphics are drawn BEFORE text (so text appears on top).
+//
+// Returns:
+//   - content: The content stream bytes
+//   - resources: The resource dictionary for fonts used
+//   - error: Any error that occurred
+//
+// Example content stream:
+//
+//	BT
+//	0 0 0 rg
+//	/F1 24 Tf
+//	100 700 Td
+//	(Hello World) Tj
+//	ET
+func GenerateContentStream(textOps []TextOp) (content []byte, resources *ResourceDictionary, err error) {
+	return GenerateContentStreamWithGraphics(textOps, nil)
+}
+
+// GenerateContentStreamWithGraphics generates a PDF content stream from text and graphics operations.
+//
+// Graphics are drawn BEFORE text (so text appears on top).
+//
+// Returns:
+//   - content: The content stream bytes
+//   - resources: The resource dictionary for fonts used
+//   - error: Any error that occurred
+func GenerateContentStreamWithGraphics(textOps []TextOp, graphicsOps []GraphicsOp) (content []byte, resources *ResourceDictionary, err error) {
+	if len(textOps) == 0 && len(graphicsOps) == 0 {
+		// Empty content stream
+		return []byte{}, NewResourceDictionary(), nil
+	}
+
+	csw := NewContentStreamWriter()
+	resources = NewResourceDictionary()
+
+	// STEP 1: Draw graphics FIRST (so text appears on top)
+	for _, gop := range graphicsOps {
+		if err := renderGraphicsOp(csw, gop); err != nil {
+			return nil, nil, fmt.Errorf("failed to render graphics: %w", err)
+		}
+	}
+
+	// STEP 2: Draw text
+	// Track which fonts we've used (to avoid adding duplicates)
+	usedFonts := make(map[string]string) // font name -> resource name
+
+	for _, op := range textOps {
+		// Get or create font resource
+		fontResName, exists := usedFonts[op.Font]
+		if !exists {
+			// Create font object (we'll need to track object numbers)
+			// For now, use a placeholder object number that will be replaced
+			// by the actual writer
+			fontObjNum := 0 // Will be set by caller
+			fontResName = resources.AddFont(fontObjNum)
+			usedFonts[op.Font] = fontResName
+		}
+
+		// Begin text object
+		csw.BeginText()
+
+		// Set color (CMYK takes precedence over RGB)
+		if op.ColorCMYK != nil {
+			csw.SetFillColorCMYK(op.ColorCMYK.C, op.ColorCMYK.M, op.ColorCMYK.Y, op.ColorCMYK.K)
+		} else {
+			csw.SetFillColorRGB(op.Color.R, op.Color.G, op.Color.B)
+		}
+
+		// Set font and size
+		csw.SetFont(fontResName, op.Size)
+
+		// Set position
+		csw.MoveTextPosition(op.X, op.Y)
+
+		// Show text
+		csw.ShowText(op.Text)
+
+		// End text object
+		csw.EndText()
+	}
+
+	return csw.Bytes(), resources, nil
+}
+
+// renderGraphicsOp renders a single graphics operation to the content stream.
+func renderGraphicsOp(csw *ContentStreamWriter, gop GraphicsOp) error {
+	// Save graphics state
+	csw.SaveState()
+
+	switch gop.Type {
+	case 0: // Line
+		return renderLine(csw, gop)
+	case 1: // Rectangle
+		return renderRect(csw, gop)
+	case 2: // Circle
+		return renderCircle(csw, gop)
+	case 5: // Polygon
+		return renderPolygon(csw, gop)
+	case 6: // Polyline
+		return renderPolyline(csw, gop)
+	case 7: // Ellipse
+		return renderEllipse(csw, gop)
+	case 8: // Bezier
+		return renderBezier(csw, gop)
+	default:
+		return fmt.Errorf("unknown graphics operation type: %d", gop.Type)
+	}
+}
+
+// setStrokeColor sets the stroke color (CMYK takes precedence over RGB).
+func setStrokeColor(csw *ContentStreamWriter, rgb *RGB, cmyk *CMYK) {
+	if cmyk != nil {
+		csw.SetStrokeColorCMYK(cmyk.C, cmyk.M, cmyk.Y, cmyk.K)
+	} else if rgb != nil {
+		csw.SetStrokeColorRGB(rgb.R, rgb.G, rgb.B)
+	}
+}
+
+// setFillColor sets the fill color (CMYK takes precedence over RGB).
+func setFillColor(csw *ContentStreamWriter, rgb *RGB, cmyk *CMYK) {
+	if cmyk != nil {
+		csw.SetFillColorCMYK(cmyk.C, cmyk.M, cmyk.Y, cmyk.K)
+	} else if rgb != nil {
+		csw.SetFillColorRGB(rgb.R, rgb.G, rgb.B)
+	}
+}
+
+// renderLine renders a line to the content stream.
+func renderLine(csw *ContentStreamWriter, gop GraphicsOp) error {
+	// Set line width
+	if gop.StrokeWidth > 0 {
+		csw.SetLineWidth(gop.StrokeWidth)
+	} else {
+		csw.SetLineWidth(1.0) // Default
+	}
+
+	// Set dash pattern if dashed
+	if gop.Dashed && len(gop.DashArray) > 0 {
+		csw.SetDashPattern(gop.DashArray, gop.DashPhase)
+	}
+
+	// Set stroke color (lines only have stroke, no fill)
+	setStrokeColor(csw, gop.StrokeColor, gop.StrokeColorCMYK)
+
+	// Draw line path
+	csw.MoveTo(gop.X, gop.Y)
+	csw.LineTo(gop.X2, gop.Y2)
+	csw.Stroke()
+
+	// Restore graphics state
+	csw.RestoreState()
+	return nil
+}
+
+// renderRect renders a rectangle to the content stream.
+func renderRect(csw *ContentStreamWriter, gop GraphicsOp) error {
+	// Set line width
+	if gop.StrokeWidth > 0 {
+		csw.SetLineWidth(gop.StrokeWidth)
+	} else {
+		csw.SetLineWidth(1.0) // Default
+	}
+
+	// Set dash pattern if dashed
+	if gop.Dashed && len(gop.DashArray) > 0 {
+		csw.SetDashPattern(gop.DashArray, gop.DashPhase)
+	}
+
+	// Set stroke color
+	setStrokeColor(csw, gop.StrokeColor, gop.StrokeColorCMYK)
+
+	// Draw rectangle path
+	csw.Rectangle(gop.X, gop.Y, gop.Width, gop.Height)
+
+	// Handle fill (gradient or solid color)
+	hasFill := gop.FillColor != nil || gop.FillColorCMYK != nil || gop.FillGradient != nil
+	hasStroke := gop.StrokeColor != nil || gop.StrokeColorCMYK != nil
+
+	if gop.FillGradient != nil {
+		// Use gradient fill
+		// Note: Full gradient implementation requires shading pattern resource
+		// For now, use a simplified approach with color interpolation
+		renderGradientFill(csw, gop.FillGradient)
+	} else {
+		// Use solid color fill
+		setFillColor(csw, gop.FillColor, gop.FillColorCMYK)
+	}
+
+	// Fill and/or stroke
+	if hasStroke && hasFill {
+		csw.FillAndStroke()
+	} else if hasFill {
+		csw.Fill()
+	} else {
+		csw.Stroke()
+	}
+
+	// Restore graphics state
+	csw.RestoreState()
+	return nil
+}
+
+// renderCircle renders a circle to the content stream using Bézier curves.
+func renderCircle(csw *ContentStreamWriter, gop GraphicsOp) error {
+	// Set line width
+	if gop.StrokeWidth > 0 {
+		csw.SetLineWidth(gop.StrokeWidth)
+	} else {
+		csw.SetLineWidth(1.0) // Default
+	}
+
+	// Set stroke color
+	setStrokeColor(csw, gop.StrokeColor, gop.StrokeColorCMYK)
+
+	// Draw circle using 4 Bézier curves
+	// kappa = 4/3 * (sqrt(2) - 1) ≈ 0.5522847498
+	const kappa = 0.5522847498
+	cx, cy, r := gop.X, gop.Y, gop.Radius
+	k := r * kappa
+
+	// Start at right (3 o'clock)
+	csw.MoveTo(cx+r, cy)
+
+	// Top-right quarter
+	csw.CurveTo(cx+r, cy+k, cx+k, cy+r, cx, cy+r)
+
+	// Top-left quarter
+	csw.CurveTo(cx-k, cy+r, cx-r, cy+k, cx-r, cy)
+
+	// Bottom-left quarter
+	csw.CurveTo(cx-r, cy-k, cx-k, cy-r, cx, cy-r)
+
+	// Bottom-right quarter (back to start)
+	csw.CurveTo(cx+k, cy-r, cx+r, cy-k, cx+r, cy)
+
+	// Close path
+	csw.ClosePath()
+
+	// Handle fill (gradient or solid color)
+	hasFill := gop.FillColor != nil || gop.FillColorCMYK != nil || gop.FillGradient != nil
+	hasStroke := gop.StrokeColor != nil || gop.StrokeColorCMYK != nil
+
+	if gop.FillGradient != nil {
+		renderGradientFill(csw, gop.FillGradient)
+	} else {
+		setFillColor(csw, gop.FillColor, gop.FillColorCMYK)
+	}
+
+	// Fill and/or stroke
+	if hasStroke && hasFill {
+		csw.FillAndStroke()
+	} else if hasFill {
+		csw.Fill()
+	} else {
+		csw.Stroke()
+	}
+
+	// Restore graphics state
+	csw.RestoreState()
+	return nil
+}
+
+// renderPolygon renders a polygon to the content stream.
+func renderPolygon(csw *ContentStreamWriter, gop GraphicsOp) error {
+	if len(gop.Vertices) < 3 {
+		return fmt.Errorf("polygon must have at least 3 vertices")
+	}
+
+	// Set line width
+	if gop.StrokeWidth > 0 {
+		csw.SetLineWidth(gop.StrokeWidth)
+	} else {
+		csw.SetLineWidth(1.0) // Default
+	}
+
+	// Set dash pattern if dashed
+	if gop.Dashed && len(gop.DashArray) > 0 {
+		csw.SetDashPattern(gop.DashArray, gop.DashPhase)
+	}
+
+	// Set stroke color
+	setStrokeColor(csw, gop.StrokeColor, gop.StrokeColorCMYK)
+
+	// Draw polygon path
+	// Start at first vertex
+	csw.MoveTo(gop.Vertices[0].X, gop.Vertices[0].Y)
+
+	// Draw lines to remaining vertices
+	for i := 1; i < len(gop.Vertices); i++ {
+		csw.LineTo(gop.Vertices[i].X, gop.Vertices[i].Y)
+	}
+
+	// Close path (back to first vertex)
+	csw.ClosePath()
+
+	// Handle fill (gradient or solid color)
+	hasFill := gop.FillColor != nil || gop.FillColorCMYK != nil || gop.FillGradient != nil
+	hasStroke := gop.StrokeColor != nil || gop.StrokeColorCMYK != nil
+
+	if gop.FillGradient != nil {
+		renderGradientFill(csw, gop.FillGradient)
+	} else {
+		setFillColor(csw, gop.FillColor, gop.FillColorCMYK)
+	}
+
+	// Fill and/or stroke
+	if hasStroke && hasFill {
+		csw.FillAndStroke()
+	} else if hasFill {
+		csw.Fill()
+	} else {
+		csw.Stroke()
+	}
+
+	// Restore graphics state
+	csw.RestoreState()
+	return nil
+}
+
+// renderPolyline renders a polyline to the content stream.
+func renderPolyline(csw *ContentStreamWriter, gop GraphicsOp) error {
+	if len(gop.Vertices) < 2 {
+		return fmt.Errorf("polyline must have at least 2 vertices")
+	}
+
+	// Set line width
+	if gop.StrokeWidth > 0 {
+		csw.SetLineWidth(gop.StrokeWidth)
+	} else {
+		csw.SetLineWidth(1.0) // Default
+	}
+
+	// Set dash pattern if dashed
+	if gop.Dashed && len(gop.DashArray) > 0 {
+		csw.SetDashPattern(gop.DashArray, gop.DashPhase)
+	}
+
+	// Set stroke color (polyline only has stroke, no fill)
+	setStrokeColor(csw, gop.StrokeColor, gop.StrokeColorCMYK)
+
+	// Draw polyline path
+	// Start at first vertex
+	csw.MoveTo(gop.Vertices[0].X, gop.Vertices[0].Y)
+
+	// Draw lines to remaining vertices
+	for i := 1; i < len(gop.Vertices); i++ {
+		csw.LineTo(gop.Vertices[i].X, gop.Vertices[i].Y)
+	}
+
+	// DO NOT close path (polyline is open)
+	csw.Stroke()
+
+	// Restore graphics state
+	csw.RestoreState()
+	return nil
+}
+
+// renderEllipse renders an ellipse to the content stream using Bézier curves.
+func renderEllipse(csw *ContentStreamWriter, gop GraphicsOp) error {
+	// Set line width
+	if gop.StrokeWidth > 0 {
+		csw.SetLineWidth(gop.StrokeWidth)
+	} else {
+		csw.SetLineWidth(1.0) // Default
+	}
+
+	// Set stroke color
+	setStrokeColor(csw, gop.StrokeColor, gop.StrokeColorCMYK)
+
+	// Draw ellipse using 4 Bézier curves
+	// kappa = 4/3 * (sqrt(2) - 1) ≈ 0.5522847498
+	const kappa = 0.5522847498
+	cx, cy, rx, ry := gop.X, gop.Y, gop.RX, gop.RY
+	kx := rx * kappa
+	ky := ry * kappa
+
+	// Start at right (3 o'clock)
+	csw.MoveTo(cx+rx, cy)
+
+	// Top-right quarter
+	csw.CurveTo(cx+rx, cy+ky, cx+kx, cy+ry, cx, cy+ry)
+
+	// Top-left quarter
+	csw.CurveTo(cx-kx, cy+ry, cx-rx, cy+ky, cx-rx, cy)
+
+	// Bottom-left quarter
+	csw.CurveTo(cx-rx, cy-ky, cx-kx, cy-ry, cx, cy-ry)
+
+	// Bottom-right quarter (back to start)
+	csw.CurveTo(cx+kx, cy-ry, cx+rx, cy-ky, cx+rx, cy)
+
+	// Close path
+	csw.ClosePath()
+
+	// Handle fill (gradient or solid color)
+	hasFill := gop.FillColor != nil || gop.FillColorCMYK != nil || gop.FillGradient != nil
+	hasStroke := gop.StrokeColor != nil || gop.StrokeColorCMYK != nil
+
+	if gop.FillGradient != nil {
+		renderGradientFill(csw, gop.FillGradient)
+	} else {
+		setFillColor(csw, gop.FillColor, gop.FillColorCMYK)
+	}
+
+	// Fill and/or stroke
+	if hasStroke && hasFill {
+		csw.FillAndStroke()
+	} else if hasFill {
+		csw.Fill()
+	} else {
+		csw.Stroke()
+	}
+
+	// Restore graphics state
+	csw.RestoreState()
+	return nil
+}
+
+// renderGradientFill applies a gradient fill to the current path.
+//
+// TODO: Full gradient implementation requires:
+// 1. Creating shading dictionary with Function objects
+// 2. Adding shading to resource dictionary
+// 3. Using 'sh' operator to apply shading
+//
+// For now, this function uses a fallback: the middle color of the gradient.
+// This allows the API to work while we build the full infrastructure.
+func renderGradientFill(csw *ContentStreamWriter, grad *GradientOp) {
+	if grad == nil || len(grad.ColorStops) == 0 {
+		return
+	}
+
+	// Fallback: use middle color stop
+	// In the future, this will create a proper PDF shading pattern
+	midIdx := len(grad.ColorStops) / 2
+	midColor := grad.ColorStops[midIdx].Color
+
+	csw.SetFillColorRGB(midColor.R, midColor.G, midColor.B)
+}
+
+// renderBezier renders a Bézier curve to the content stream.
+func renderBezier(csw *ContentStreamWriter, gop GraphicsOp) error {
+	if len(gop.BezierSegs) == 0 {
+		return fmt.Errorf("bezier curve must have at least 1 segment")
+	}
+
+	// Set line width
+	if gop.StrokeWidth > 0 {
+		csw.SetLineWidth(gop.StrokeWidth)
+	} else {
+		csw.SetLineWidth(1.0) // Default
+	}
+
+	// Set dash pattern if dashed
+	if gop.Dashed && len(gop.DashArray) > 0 {
+		csw.SetDashPattern(gop.DashArray, gop.DashPhase)
+	}
+
+	// Set stroke color
+	setStrokeColor(csw, gop.StrokeColor, gop.StrokeColorCMYK)
+
+	// Draw Bézier curve path
+	// Start at first segment's start point
+	firstSeg := gop.BezierSegs[0]
+	csw.MoveTo(firstSeg.Start.X, firstSeg.Start.Y)
+
+	// Draw each segment
+	for _, seg := range gop.BezierSegs {
+		csw.CurveTo(seg.C1.X, seg.C1.Y, seg.C2.X, seg.C2.Y, seg.End.X, seg.End.Y)
+	}
+
+	// Close path if requested
+	if gop.Closed {
+		csw.ClosePath()
+	}
+
+	// Handle fill (gradient or solid color)
+	hasFill := (gop.FillColor != nil || gop.FillColorCMYK != nil || gop.FillGradient != nil) && gop.Closed
+	hasStroke := gop.StrokeColor != nil || gop.StrokeColorCMYK != nil
+
+	if gop.FillGradient != nil && gop.Closed {
+		renderGradientFill(csw, gop.FillGradient)
+	} else if gop.Closed {
+		setFillColor(csw, gop.FillColor, gop.FillColorCMYK)
+	}
+
+	// Fill and/or stroke
+	if hasStroke && hasFill {
+		csw.FillAndStroke()
+	} else if hasFill {
+		csw.Fill()
+	} else {
+		csw.Stroke()
+	}
+
+	// Restore graphics state
+	csw.RestoreState()
+	return nil
+}
+
+// CreateFontObjects creates PDF font objects for the fonts used in text operations.
+//
+// Returns a map of font name -> *Standard14Font.
+//
+// This allows the writer to create font objects and assign them object numbers.
+func CreateFontObjects(textOps []TextOp) (map[string]*fonts.Standard14Font, error) {
+	fontMap := make(map[string]*fonts.Standard14Font)
+
+	for _, op := range textOps {
+		if _, exists := fontMap[op.Font]; exists {
+			continue // Already have this font
+		}
+
+		// Map font name to Standard14Font
+		font, err := getStandard14Font(op.Font)
+		if err != nil {
+			return nil, err
+		}
+
+		fontMap[op.Font] = font
+	}
+
+	return fontMap, nil
+}
+
+// getStandard14Font returns the Standard14Font for the given font name.
+func getStandard14Font(name string) (*fonts.Standard14Font, error) {
+	switch name {
+	case "Helvetica":
+		return fonts.Helvetica, nil
+	case "Helvetica-Bold":
+		return fonts.HelveticaBold, nil
+	case "Helvetica-Oblique":
+		return fonts.HelveticaOblique, nil
+	case "Helvetica-BoldOblique":
+		return fonts.HelveticaBoldOblique, nil
+	case "Times-Roman":
+		return fonts.TimesRoman, nil
+	case "Times-Bold":
+		return fonts.TimesBold, nil
+	case "Times-Italic":
+		return fonts.TimesItalic, nil
+	case "Times-BoldItalic":
+		return fonts.TimesBoldItalic, nil
+	case "Courier":
+		return fonts.Courier, nil
+	case "Courier-Bold":
+		return fonts.CourierBold, nil
+	case "Courier-Oblique":
+		return fonts.CourierOblique, nil
+	case "Courier-BoldOblique":
+		return fonts.CourierBoldOblique, nil
+	case "Symbol":
+		return fonts.Symbol, nil
+	case "ZapfDingbats":
+		return fonts.ZapfDingbats, nil
+	default:
+		return nil, fmt.Errorf("unknown font: %s", name)
+	}
+}
+
+// CreateContentStreamObject creates a PDF stream object for content.
+//
+// Format (uncompressed):
+//
+//	N 0 obj
+//	<< /Length M >>
+//	stream
+//	... content ...
+//	endstream
+//	endobj
+//
+// Format (compressed):
+//
+//	N 0 obj
+//	<< /Length M /Filter /FlateDecode >>
+//	stream
+//	... compressed content ...
+//	endstream
+//	endobj
+//
+// Parameters:
+//   - objNum: Object number for this stream
+//   - content: Stream content (uncompressed)
+//   - compress: If true, compress the content using FlateDecode
+//
+// Returns the IndirectObject ready to write.
+func CreateContentStreamObject(objNum int, content []byte, compress bool) *IndirectObject {
+	var buf bytes.Buffer
+
+	// Compress content if requested
+	actualContent := content
+	if compress && ShouldCompress(content) {
+		compressed, err := CompressStream(content, DefaultCompression)
+		if err == nil {
+			// Compression succeeded, use compressed content
+			actualContent = compressed
+		}
+		// If compression fails, fall back to uncompressed
+	}
+
+	// Write stream dictionary
+	buf.WriteString("<< /Length ")
+	buf.WriteString(fmt.Sprintf("%d", len(actualContent)))
+
+	// Add Filter if compressed
+	if compress && len(actualContent) != len(content) {
+		buf.WriteString(" /Filter /FlateDecode")
+	}
+
+	buf.WriteString(" >>\n")
+
+	// Write stream keyword
+	buf.WriteString("stream\n")
+
+	// Write stream data
+	buf.Write(actualContent)
+
+	// Ensure newline before endstream (only for uncompressed text streams)
+	if !compress && len(actualContent) > 0 && actualContent[len(actualContent)-1] != '\n' {
+		buf.WriteString("\n")
+	}
+
+	// Write endstream
+	buf.WriteString("endstream")
+
+	return NewIndirectObject(objNum, 0, buf.Bytes())
+}

@@ -1,0 +1,98 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Dependency directories (remove the comment below to include it)
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+/bin/
+/dist/
+/build/
+
+# Test artifacts
+# Note: testdata/pdfs/*.pdf files ARE committed (needed for CI tests)
+!/testdata/pdfs/.gitkeep
+coverage.out
+coverage.html
+
+# Fuzz test corpus (can be large)
+/testdata/corpus/
+/internal/**/testdata/fuzz/
+
+# Generated files
+*.pb.go
+*.gen.go
+
+# Temporary files
+/tmp/
+*.tmp
+*.bak
+*.old
+*.backup
+*.backup-*
+*.patch
+apply_*.sh
+apply_*.py
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Project specific
+/output/
+
+# Archive (keep in git but don't add new files automatically)
+# /archive/
+
+# Test scripts (archived, not for main codebase)
+count-*.go
+test-*.go
+analyze-*.go
+debug-*.go
+show-*.go
+find-*.go
+check-*.go
+
+# Reference code (not part of GoPDF implementation)
+/examples/unipdf/
+/examples/pdfcpu/
+/examples/tabula-java/
+
+# AI settings
+.claude/
+.goco/
+.goda/
+
+# Developers docs
+docs/dev/
+archive/
+reference/
+INDEX.md
+gosh.log
+

